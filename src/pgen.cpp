@@ -712,6 +712,27 @@ struct $$Parsed
 
 		return nullptr;
 	}
+
+	std::string flatten() const
+	{
+		switch (type)
+		{
+			case $$ParsedType::Literal:
+				return std::string(literal);
+			case $$ParsedType::Identifier:
+			case $$ParsedType::Group:
+				{
+					std::string result;
+
+					for (const auto &v : group)
+						result += v.flatten();
+
+					return result;
+				}
+		}
+
+		__assume(0);
+	}
 };
 
 [[nodiscard]]
@@ -748,27 +769,6 @@ std::optional<$$Parsed> $$parse_literal(const char *&s, const char *e, const std
 
 namespace helpers
 {
-
-std::string flatten(const $$Parsed &p)
-{
-	switch (p.type)
-	{
-		case $$ParsedType::Literal:
-			return std::string(p.literal);
-		case $$ParsedType::Identifier:
-		case $$ParsedType::Group:
-			{
-				std::string result;
-
-				for (const auto &v : p.group)
-					result += flatten(v);
-
-				return result;
-			}
-	}
-
-	__assume(0);
-}
 
 std::string _generate_graphviz_literal(const $$Parsed &p, const std::unordered_map<const $$Parsed *, int> &idx)
 {
