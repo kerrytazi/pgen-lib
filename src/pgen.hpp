@@ -48,7 +48,6 @@ struct Rule
 {
 	std::string name;
 	std::vector<RuleItem> seq;
-	bool ignore = false;
 };
 
 std::vector<Rule> parse(const char *str, size_t size);

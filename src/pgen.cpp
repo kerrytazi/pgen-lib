@@ -369,9 +369,6 @@ std::optional<Rule> parse_rule(const char *&s, const char *e)
 {
 	Rule result;
 
-	if (parse_literal(s, e, "^"))
-		result.ignore = true;
-
 	result.name = parse_identifier(s, e).value();
 
 	skip_whitespace(s, e);
@@ -565,7 +562,7 @@ void collect_groups(std::vector<const RuleItemGroup *> &groups, const std::vecto
 	}
 }
 
-std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &name, const std::string &ptype, const std::unordered_map<std::string_view, const Rule *> &rules_map)
+std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &name, const std::string &ptype)
 {
 	std::string result;
 
@@ -611,11 +608,7 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 				result += std::string(level, '\t') + "		if (auto v = $parse_" + seq[i].identifier + "(sc, e))\n";
 
 			result += std::string(level, '\t') + "		{\n";
-
-			bool collect_identifier = seq[i].type != RuleItemType::Identifier || !rules_map.at(seq[i].identifier)->ignore;
-
-			if (collect_identifier)
-				result += std::string(level, '\t') + "			result.group.push_back(v.value());\n";
+			result += std::string(level, '\t') + "			result.group.push_back(v.value());\n";
 
 			if (seq[i].multiple)
 			{
@@ -630,10 +623,7 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 					result += std::string(level, '\t') + "			while (auto v = $parse_" + seq[i].identifier + "(sc, e))\n";
 
 				result += std::string(level, '\t') + "			{\n";
-
-				if (collect_identifier)
-					result += std::string(level, '\t') + "				result.group.push_back(v.value());\n";
-
+				result += std::string(level, '\t') + "				result.group.push_back(v.value());\n";
 				result += std::string(level, '\t') + "			}\n";
 				result += "\n";
 			}
@@ -665,11 +655,6 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 std::string generate_code(const std::vector<Rule> &rules, const GenerateCodeParams &params)
 {
 	std::string result;
-
-	std::unordered_map<std::string_view, const Rule *> rules_map;
-
-	for (const auto &rule : rules)
-		rules_map.insert({ rule.name, &rule });
 
 	std::vector<const RuleItemGroup *> groups;
 	
@@ -904,6 +889,40 @@ std::string generate_tree(const $$Parsed &p, size_t align = 0)
 	return result;
 }
 
+std::string ansii_colored(const $$Parsed &v, const std::unordered_map<std::string, std::string> &colors, const std::string &prev_color)
+{
+	std::string result;
+
+	std::string colored;
+
+	if (auto it = colors.find(std::string(v.identifier)); it != colors.end())
+	{
+		result += it->second;
+		colored = it->second;
+	}
+
+	switch (v.type)
+	{
+		case $$ParsedType::Literal:
+			result += v.literal;
+			break;
+
+		case $$ParsedType::Identifier:
+		case $$ParsedType::Group:
+			for (const auto &g : v.group)
+				result += ansii_colored(g, colors, colored.empty() ? prev_color : colored);
+
+			break;
+	}
+
+	if (!colored.empty())
+	{
+		result += prev_color;
+	}
+
+	return result;
+}
+
 } // namespace helpers
 
 )AAA";
@@ -926,7 +945,7 @@ std::string generate_tree(const $$Parsed &p, size_t align = 0)
 
 	for (const auto &rule : rules)
 	{
-		result += generate_rule(rule.seq, rule.name, "Identifier", rules_map);
+		result += generate_rule(rule.seq, rule.name, "Identifier");
 		result += "\n";
 	}
 
@@ -934,7 +953,7 @@ std::string generate_tree(const $$Parsed &p, size_t align = 0)
 
 	for (const auto &group : groups)
 	{
-		result += generate_rule(group->seq, group->name, "Group", rules_map);
+		result += generate_rule(group->seq, group->name, "Group");
 		result += "\n";
 	}
 
