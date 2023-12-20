@@ -301,6 +301,17 @@ std::optional<RuleItemGroup> parse_group(const char *&s, const char *e, const st
 			}
 		}
 		else
+		if (r.type == RuleItemType::Negate)
+		{
+			if (!result.seq.empty())
+			{
+				if (result.seq.back().type != RuleItemType::Literal)
+					throw 2;
+
+				result.seq.back().negate = true;
+			}
+		}
+		else
 		{
 			result.seq.push_back(r);
 		}
@@ -358,6 +369,11 @@ std::optional<RuleItem> parse_ruleitem(const char *&s, const char *e, const std:
 		result.type = RuleItemType::ZeroOrOne;
 	}
 	else
+	if (parse_literal(s, e, "^"))
+	{
+		result.type = RuleItemType::Negate;
+	}
+	else
 	{
 		return std::nullopt;
 	}
@@ -406,6 +422,17 @@ std::optional<Rule> parse_rule(const char *&s, const char *e)
 			if (!result.seq.empty())
 			{
 				result.seq.back().optional = true;
+			}
+		}
+		else
+		if (r.type == RuleItemType::Negate)
+		{
+			if (!result.seq.empty())
+			{
+				if (result.seq.back().type != RuleItemType::Literal)
+					throw 2;
+
+				result.seq.back().negate = true;
 			}
 		}
 		else
@@ -600,7 +627,12 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 			result += "\n";
 
 			if (seq[i].type == RuleItemType::Literal)
-				result += std::string(level, '\t') + "		if (auto v = $$parse_literal(sc, e, \"" + escape_string(seq[i].literal) + "\"))\n";
+			{
+				if (seq[i].negate)
+					result += std::string(level, '\t') + "		if (auto v = $$parse_negate_literal(sc, e, \"" + escape_string(seq[i].literal) + "\"))\n";
+				else
+					result += std::string(level, '\t') + "		if (auto v = $$parse_literal(sc, e, \"" + escape_string(seq[i].literal) + "\"))\n";
+			}
 			else
 			if (seq[i].type == RuleItemType::Group)
 				result += std::string(level, '\t') + "		if (auto v = $parse_" + seq[i].group.name + "(sc, e))\n";
@@ -615,7 +647,12 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 				result += "\n";
 
 				if (seq[i].type == RuleItemType::Literal)
-					result += std::string(level, '\t') + "			while (auto v = $$parse_literal(sc, e, \"" + seq[i].literal + "\"))\n";
+				{
+					if (seq[i].negate)
+						result += std::string(level, '\t') + "			while (auto v = $$parse_negate_literal(sc, e, \"" + escape_string(seq[i].literal) + "\"))\n";
+					else
+						result += std::string(level, '\t') + "			while (auto v = $$parse_literal(sc, e, \"" + escape_string(seq[i].literal) + "\"))\n";
+				}
 				else
 				if (seq[i].type == RuleItemType::Group)
 					result += std::string(level, '\t') + "			while (auto v = $parse_" + seq[i].group.name + "(sc, e))\n";
@@ -685,7 +722,7 @@ enum class $$ParsedType
 struct $$Parsed
 {
 	$$ParsedType type;
-	std::string_view literal;
+	std::string literal;
 	std::string_view identifier;
 	std::vector<$$Parsed> group;
 
@@ -749,6 +786,39 @@ std::optional<$$Parsed> $$parse_literal(const char *&s, const char *e, const std
 
 	s = s + lit.size();
 
+	return result;
+}
+
+[[nodiscard]]
+std::optional<$$Parsed> $$parse_negate_literal(const char *&s, const char *e, const std::string_view &lit)
+{
+	$$Parsed result;
+	result.type = $$ParsedType::Literal;
+
+	if ($$is_eof(s, e))
+		return std::nullopt;
+
+	size_t left = e - s;
+
+	if (left >= lit.size())
+	{
+		bool eq = true;
+
+		for (size_t i = 0; i < lit.size(); ++i)
+		{
+			if (s[i] != lit[i])
+			{
+				eq = false;
+				break;
+			}
+		}
+
+		if (eq)
+			return std::nullopt;
+	}
+
+	result.literal = std::string(1, *s);
+	++s;
 	return result;
 }
 

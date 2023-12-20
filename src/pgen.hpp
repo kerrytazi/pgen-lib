@@ -24,6 +24,7 @@ enum class RuleItemType
 	ZeroOrMore,
 	OneOrMore,
 	ZeroOrOne,
+	Negate,
 };
 
 struct RuleItemGroup
@@ -42,6 +43,7 @@ struct RuleItem
 
 	bool optional = false;
 	bool multiple = false;
+	bool negate = false;
 };
 
 struct Rule
