@@ -602,7 +602,7 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 	result += "{\n";
 	result += "	$$Parsed result;\n";
 	result += "	result.type = $$ParsedType::" + ptype + ";\n";
-	result += "	result.identifier = \"" + name + "\";\n";
+	result += "	result.identifier = $$IdentifierType::$i_" + name + ";\n";
 	result += "\n";
 
 	// each 'or'
@@ -640,7 +640,7 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 				result += std::string(level, '\t') + "		if (auto v = $parse_" + seq[i].identifier + "(sc, e))\n";
 
 			result += std::string(level, '\t') + "		{\n";
-			result += std::string(level, '\t') + "			result.group.push_back(v.value());\n";
+			result += std::string(level, '\t') + "			result.group.push_back(std::move(v).value());\n";
 
 			if (seq[i].multiple)
 			{
@@ -660,7 +660,7 @@ std::string generate_rule(const std::vector<RuleItem> &seq, const std::string &n
 					result += std::string(level, '\t') + "			while (auto v = $parse_" + seq[i].identifier + "(sc, e))\n";
 
 				result += std::string(level, '\t') + "			{\n";
-				result += std::string(level, '\t') + "				result.group.push_back(v.value());\n";
+				result += std::string(level, '\t') + "				result.group.push_back(std::move(v).value());\n";
 				result += std::string(level, '\t') + "			}\n";
 				result += "\n";
 			}
@@ -711,6 +711,44 @@ std::string generate_code(const std::vector<Rule> &rules, const GenerateCodePara
 	if (!params.custom_namespace.empty())
 		result += "namespace " + params.custom_namespace + "\n{\n\n";
 
+	result += "enum class $$IdentifierType\n";
+	result += "{\n";
+	result += "	None,\n";
+
+	for (const auto &rule : rules)
+	{
+		result += "	$i_" + rule.name + ",\n";
+	}
+
+	result += "\n";
+
+	for (const auto &group : groups)
+	{
+		result += "	$i_" + group->name + ",\n";
+	}
+
+	result += "};\n";
+	result += "\n";
+
+	result += "const std::string table_$$IdentifierType[]\n";
+	result += "{\n";
+	result += "	\"\",\n";
+
+	for (const auto &rule : rules)
+	{
+		result += "	\"" + rule.name + "\",\n";
+	}
+
+	result += "\n";
+
+	for (const auto &group : groups)
+	{
+		result += "	\"" + group->name + "\",\n";
+	}
+
+	result += "};\n";
+	result += "\n";
+
 	result += R"AAA(
 enum class $$ParsedType
 {
@@ -719,14 +757,20 @@ enum class $$ParsedType
 	Group,
 };
 
+struct $$ParsedCustomData
+{
+	virtual ~$$ParsedCustomData() {}
+};
+
 struct $$Parsed
 {
 	$$ParsedType type;
+	$$IdentifierType identifier = $$IdentifierType::None;
 	std::string literal;
-	std::string_view identifier;
 	std::vector<$$Parsed> group;
+	mutable std::unique_ptr<$$ParsedCustomData> custom_data;
 
-	const $$Parsed *find(const std::string_view &id) const
+	const $$Parsed *find($$IdentifierType id) const
 	{
 		for (const auto &v : group)
 			if (v.identifier == id)
@@ -740,7 +784,7 @@ struct $$Parsed
 		switch (type)
 		{
 			case $$ParsedType::Literal:
-				return std::string(literal);
+				return literal;
 			case $$ParsedType::Identifier:
 			case $$ParsedType::Group:
 				{
@@ -867,12 +911,12 @@ std::string _generate_graphviz_ids(const $$Parsed &p, std::unordered_map<const $
 	{
 		case $$ParsedType::Literal:
 			{
-				result += std::string("\ta") + std::to_string(id) + "[label=\"" + std::string(p.literal) + "\" shape=ellipse];\n";
+				result += std::string("\ta") + std::to_string(id) + "[label=\"" + p.literal + "\" shape=ellipse];\n";
 				break;
 			}
 		case $$ParsedType::Identifier:
 			{
-				result += std::string("\ta") + std::to_string(id) + "[label=\"" + std::string(p.identifier) + "\" shape=box];\n";
+				result += std::string("\ta") + std::to_string(id) + "[label=\"" + table_$$IdentifierType[(int)p.identifier] + "\" shape=box];\n";
 
 				for (const auto &v : p.group)
 					result += _generate_graphviz_ids(v, idx, max_id);
@@ -881,7 +925,7 @@ std::string _generate_graphviz_ids(const $$Parsed &p, std::unordered_map<const $
 			}
 		case $$ParsedType::Group:
 			{
-				result += std::string("\ta") + std::to_string(id) + "[label=\"" + std::string(p.identifier) + "\" shape=hexagon];\n";
+				result += std::string("\ta") + std::to_string(id) + "[label=\"" + table_$$IdentifierType[(int)p.identifier] + "\" shape=hexagon];\n";
 
 				for (const auto &v : p.group)
 					result += _generate_graphviz_ids(v, idx, max_id);
@@ -946,9 +990,9 @@ std::string generate_tree(const $$Parsed &p, size_t align = 0)
 	std::string result;
 
 	if (p.type == $$ParsedType::Literal)
-		result += std::string(align, ' ') + "'" + std::string(p.literal) + "'\n";
+		result += std::string(align, ' ') + "'" + p.literal + "'\n";
 	else
-		result += std::string(align, ' ') + std::string(p.identifier) + "\n";
+		result += std::string(align, ' ') + table_$$IdentifierType[(int)p.identifier] + "\n";
 
 	if (p.type == $$ParsedType::Identifier || p.type == $$ParsedType::Group)
 	{
@@ -965,7 +1009,7 @@ std::string ansii_colored(const $$Parsed &v, const std::unordered_map<std::strin
 
 	std::string colored;
 
-	if (auto it = colors.find(std::string(v.identifier)); it != colors.end())
+	if (auto it = colors.find(table_$$IdentifierType[(int)v.identifier]); it != colors.end())
 	{
 		result += it->second;
 		colored = it->second;
